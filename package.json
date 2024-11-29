@@ -1,0 +1,18 @@
+{
+  "name": "styrene",
+  "version": "0.1.0",
+  "description": "Minimalist HTTP Server",
+  "main": "src/index.js",
+  "keywords": [
+    "http"
+  ],
+  "author": "TheOfficialSeb",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TheOfficialSeb/styrene.git"
+  },
+  "bugs": {
+    "url": "https://github.com/TheOfficialSeb/styrene/issues"
+  },
+  "homepage": "https://github.com/TheOfficialSeb/styrene#readme"
+}
