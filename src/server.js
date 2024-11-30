@@ -36,6 +36,7 @@ class Server{
     */
     #Handlers = []
     constructor(PublicDirectory){
+        if (!PublicDirectory)throw "No public/static directory specified"
         this.#HTTPServer = new HTTP.Server()
         this.#PublicDirectory = PathUtil.resolve(PublicDirectory)
         console.log(this.#PublicDirectory)
