@@ -134,7 +134,7 @@ class Server {
      */
     #doFallback(request, response, requestURL, customDirectory) {
         try {
-            if (!request.closed) this.#useDirectory(request, response, requestURL, customDirectory);
+            if (!response.closed) this.#useDirectory(request, response, requestURL, customDirectory);
         } catch {}
     }
 
