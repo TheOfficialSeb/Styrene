@@ -202,6 +202,21 @@ function negate(delimiter, backtrack) {
     }
     return `(?:(?!${escape(backtrack)}|${escape(delimiter)})[\\s\\S])`;
 }
+function matchInput(input) {
+    const m = this.regexp.exec(input);
+    if (!m)
+        return false;
+    const path = m[0];
+    const params = {};
+    for (let i = 1; i < m.length; i++) {
+        if (m[i] === undefined)
+            continue;
+        const key = this.keys[i - 1];
+        const decoder = this.decoders[i - 1];
+        params[key.name] = decoder(m[i]);
+    }
+    return { path, params };
+};
 function match(path) {
     const keys = [];
     const sources = [];
@@ -212,20 +227,10 @@ function match(path) {
             return decodeURIComponent;
         return (value) => value.split("/").map(decodeURIComponent);
     });
-    return function match(input) {
-        const m = regexp.exec(input);
-        if (!m)
-            return false;
-        const path = m[0];
-        const params = {};
-        for (let i = 1; i < m.length; i++) {
-            if (m[i] === undefined)
-                continue;
-            const key = keys[i - 1];
-            const decoder = decoders[i - 1];
-            params[key.name] = decoder(m[i]);
-        }
-        return { path, params };
-    };
+    return matchInput.bind({
+        keys,
+        regexp,
+        decoders
+    })
 }
 module.exports = {match};

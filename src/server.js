@@ -5,16 +5,16 @@ const { URL } = require("node:url");
 const pathExp = require("./pathexp");
 
 /**
- * @typedef {Object} handler
+ * @typedef {Object} Listener
  * @property {method} method
  * @property {Function} pathMatcher
- * @property {RequestHandler} callback
+ * @property {RequestListener} callback
 */
 /**
  * @typedef {'CONNECT' | 'DELETE' | 'GET' | 'HEAD' | 'OPTIONS' | 'POST' | 'PUT' | 'TRACE'} method
  */
 /**
- * @callback RequestHandler
+ * @callback RequestListener
  * @param {HTTP.IncomingMessage} request
  * @param {HTTP.ServerResponse} response
  * @param {URL} requestURL
@@ -37,9 +37,9 @@ class Server {
     httpServer;
 
     /**
-     * @type {handler[]}
+     * @type {listener[]}
     */
-    #handlers = [];
+    #listeners = [];
 
     constructor(publicDirectory) {
         if (!publicDirectory) throw "No public/static directory specified";
@@ -59,13 +59,13 @@ class Server {
             let requestURL = new URL(`http://${request.headers.host || `localhost:${request.socket.localPort}`}${request.url}`);
             requestURL.pathname = decodeURIComponent(requestURL.pathname);
 
-            const validHandlers = this.#handlers.filter(handler => handler.method === request.method);
+            const methodListeners = this.#listeners.filter(listener => listener.method === request.method);
 
-            for (let handler of validHandlers) {
-                let match = handler.pathMatcher(requestURL.pathname);
+            for (let listener of methodListeners) {
+                let match = listener.pathMatcher(requestURL.pathname);
                 if (!match) continue;
                 try {
-                    handler.callback(request, response, requestURL, match.params, this.#doFallback.bind(this, request, response, requestURL));
+                    listener.callback(request, response, requestURL, match.params, this.#doFallback.bind(this, request, response, requestURL));
                 } catch (err) {
                     if (response.closed) return;
                     response.writeHead(500);
@@ -112,15 +112,15 @@ class Server {
     /**
      * @param {method} method 
      * @param {String} path 
-     * @param {RequestHandler} requestHandler
+     * @param {RequestListener} requestListener
      */
-    on(method, path, requestHandler) {
+    on(method, path, listener) {
         if (!HTTP.METHODS.includes(method)) throw "Invalid HTTP method";
         if (!(typeof path == "string" && path.startsWith("/"))) throw "Path must be a string that starts with a /";
-        if (!(typeof requestHandler == "function")) throw "RequestHandler must be defined";
+        if (!(typeof listener == "function")) throw "Listener must be function";
 
-        this.#handlers.push({
-            "callback": requestHandler,
+        this.#listeners.push({
+            "callback": listener,
             "method": method,
             "pathMatcher": pathExp.match(path)
         });
