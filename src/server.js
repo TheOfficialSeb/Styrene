@@ -1,135 +1,149 @@
-const HTTP = require("http")
-const PathUtil = require("path")
-const {URL} = require("url")
-const FileSystem = require("fs")
-const Events = require("events")
-const PathExp = require("./pathexp")
+const HTTP = require("node:http");
+const pathUtil = require("node:path");
+const fileSystem = require("node:fs");
+const { URL } = require("node:url");
+const pathExp = require("./pathexp");
+
 /**
- * @typedef {Object} Handler
- * @property {Method} method
+ * @typedef {Object} handler
+ * @property {method} method
  * @property {Function} pathMatcher
  * @property {RequestHandler} callback
 */
 /**
- * @typedef {'GET' | 'POST'} Method
+ * @typedef {'GET' | 'POST'} method
  */
 /**
  * @callback RequestHandler
- * @param {HTTP.IncomingMessage} Request
- * @param {HTTP.ServerResponse} Response
- * @param {URL} RequestURL
- * @param {Object} Params
- * @param {UseFallback} UseFallback
+ * @param {HTTP.IncomingMessage} request
+ * @param {HTTP.ServerResponse} response
+ * @param {URL} requestURL
+ * @param {Object} params
+ * @param {UseFallback} useFallback
  */
 /**
  * @callback UseFallback
- * @param {String} [CustomDirectory]
+ * @param {String} [customDirectory]
  */
-class Server{
-    #PublicDirectory = ""
+class Server {
     /**
-	 * @type {HTTP.Server}
-    */
-    #HTTPServer;
+     * @type {String}
+     */
+    #publicDirectory = "";
+
     /**
-	 * @type {Handler[]}
+     * @type {HTTP.Server}
     */
-    #Handlers = []
-    constructor(PublicDirectory){
-        if (!PublicDirectory)throw "No public/static directory specified"
-        this.#HTTPServer = new HTTP.Server()
-        this.#PublicDirectory = PathUtil.resolve(PublicDirectory)
-        this.#HTTPServer.addListener("request",this.#requestHandle.bind(this))
+    httpServer;
+
+    /**
+     * @type {handler[]}
+    */
+    #handlers = [];
+
+    constructor(publicDirectory) {
+        if (!publicDirectory) throw "No public/static directory specified";
+        this.httpServer = new HTTP.Server();
+        this.#publicDirectory = pathUtil.resolve(publicDirectory);
+        this.httpServer.addListener("request", this.#requestHandle.bind(this));
     }
+
     /**
-	 * @param {HTTP.IncomingMessage} Request
-	 * @param {HTTP.ServerResponse} Response
+     * @param {HTTP.IncomingMessage} request
+     * @param {HTTP.ServerResponse} response
     */
-    #requestHandle(Request,Response) {
-        try{
-            Response.setHeader("server","Styrene")
-            if (!Request.url.match(/^\/+/))throw "Failure to correctly start a proper url"
-            let RequestURL = new URL(`http://${Request.headers.host || `localhost:${Request.socket.localPort}`}${Request.url}`)
-            RequestURL.pathname = decodeURIComponent(RequestURL.pathname)
-            for (const Handler of this.#Handlers){
-                if (Handler.method === Request.method){
-                    let Match = Handler.pathMatcher(RequestURL.pathname)
-                    if (Match !== false){
-                        try{
-                            Handler.callback(Request,Response,RequestURL,Match.params,this.#doFallback.bind(this,Request,Response,RequestURL))
-                        }catch(Err){
-                            if (!Response.closed){
-                                Response.writeHead(500)
-                                Response.end(`Interal Server Error\n${Err.message || Err}`)
-                            }
-                        }
-                        return;
-                    }
+    #requestHandle(request, response) {
+        try {
+            if (!request.url.match(/^\/+/)) throw "Failure to correctly start a proper url";
+            response.setHeader("server", "Styrene");
+            let requestURL = new URL(`http://${request.headers.host || `localhost:${request.socket.localPort}`}${request.url}`);
+            requestURL.pathname = decodeURIComponent(requestURL.pathname);
+
+            const validHandlers = this.#handlers.filter(handler => handler.method === request.method);
+
+            for (let handler of validHandlers) {
+                let match = handler.pathMatcher(requestURL.pathname);
+                if (!match) continue;
+                try {
+                    handler.callback(request, response, requestURL, match.params, this.#doFallback.bind(this, request, response, requestURL));
+                } catch (err) {
+                    if (response.closed) return;
+                    response.writeHead(500);
+                    response.end(`Internal Server Error\n${err.message || err}`);
                 }
+                return;
             }
-            this.#useDirectory(Request,Response,RequestURL)
-        }catch(Err){
-            if (!Response.closed){
-                Response.writeHead(400)
-                Response.end(`Bad Request\n${Err.message || Err}`)
-            }
+            this.#useDirectory(request, response, requestURL);
+        } catch (err) {
+            if (response.closed) return;
+            response.writeHead(400);
+            response.end(`Bad Request\n${err.message || err}`);
         }
     }
+
     /**
-     * @param {HTTP.IncomingMessage} Request
-     * @param {HTTP.ServerResponse} Response
-     * @param {URL} RequestURL
-     * @param {String} [CustomDirectory]
+     * @param {HTTP.IncomingMessage} request
+     * @param {HTTP.ServerResponse} response
+     * @param {URL} requestURL
+     * @param {String} [customDirectory]
      */
-    #useDirectory(Request,Response,RequestURL,CustomDirectory){
-        let FilePath = PathUtil.join(CustomDirectory || this.#PublicDirectory,decodeURIComponent(RequestURL.pathname).replace(/\/$/,"/index.html"))
-        let FileStream
-		let Extname = PathUtil.extname(FilePath)
-        let Stats = FileSystem.existsSync(FilePath) && FileSystem.statSync(FilePath)
-		if (Stats && Stats.isFile()){
-			FileStream = FileSystem.createReadStream(FilePath)
-        }else if(Stats && Stats.isDirectory() && PathUtil.dirname(FilePath) != FilePath){
-            RequestURL.pathname+="/"
-            Response.writeHead(302,{"location":RequestURL.href.slice(RequestURL.origin.length)})
-			return Response.end()
-        }else{
-            Response.writeHead(404)
-			return Response.end("Not Found")
-		}
-		//this.#applyMime(Response,Extname)
-		FileStream.pipe(Response)
-	}
-    /**
-     * @param {Method} Method 
-     * @param {String} Path 
-     * @param {RequestHandler} RequestHandler
-     */
-    on(Method,Path,RequestHandler){
-        if (!HTTP.METHODS.includes(Method))throw "Method should be GET or POST";
-        if (!(typeof Path === "string" && Path.startsWith("/"))){throw "Path must be a string that starts with a /"}
-        if (!(typeof RequestHandler === "function"))throw "RequestHandler must be defined";
-        this.#Handlers.push({
-            "callback": RequestHandler,
-            "method": Method,
-            "pathMatcher": PathExp.match(Path)
-        })
+    #useDirectory(request, response, requestURL, customDirectory) {
+        let filePath = pathUtil.join(customDirectory || this.#publicDirectory, decodeURIComponent(requestURL.pathname).replace(/\/$/, "/index.html"));
+        let fileStream;
+        let extName = pathUtil.extname(filePath);
+        let stats = fileSystem.existsSync(filePath) && fileSystem.statSync(filePath);
+
+        if (stats && stats.isFile()) {
+            fileStream = fileSystem.createReadStream(filePath);
+        } else if (stats && stats.isDirectory() && pathUtil.dirname(filePath) != filePath) {
+            requestURL.pathname += "/";
+            response.writeHead(302, { "location": requestURL.href.slice(requestURL.origin.length) });
+            response.end();
+            return;
+        } else {
+            response.writeHead(404);
+            response.end("Not Found");
+            return;
+        }
+        //this.#applyMime(Response, Extname)
+        fileStream.pipe(response, { end: true });
     }
+
     /**
-     * @param {HTTP.IncomingMessage} Request
-     * @param {HTTP.ServerResponse} Response
-     * @param {URL} RequestURL
-     * @param {String} [CustomDirectory]
+     * @param {method} method 
+     * @param {String} path 
+     * @param {RequestHandler} requestHandler
      */
-    #doFallback(Request,Response,RequestURL,CustomDirectory){
-        try{
-            if (!Request.closed)this.#useDirectory(Request,Response,RequestURL,CustomDirectory)
-        }catch{}
+    on(method, path, requestHandler) {
+        if (!HTTP.METHODS.includes(method)) throw "Invalid HTTP method";
+        if (!(typeof path == "string" && path.startsWith("/"))) throw "Path must be a string that starts with a /";
+        if (!(typeof requestHandler == "function")) throw "RequestHandler must be defined";
+
+        this.#handlers.push({
+            "callback": requestHandler,
+            "method": method,
+            "pathMatcher": pathExp.match(path)
+        });
     }
+
+    /**
+     * @param {HTTP.IncomingMessage} request
+     * @param {HTTP.ServerResponse} response
+     * @param {URL} requestURL
+     * @param {String} [customDirectory]
+     */
+    #doFallback(request, response, requestURL, customDirectory) {
+        try {
+            if (!request.closed) this.#useDirectory(request, response, requestURL, customDirectory);
+        } catch {}
+    }
+
     /**
      * @param {Number} port 
      */
     listen(port) {
-        this.#HTTPServer.listen(port)
+        this.httpServer.listen(port);
     }
 }
-module.exports = Server
+
+module.exports = Server;
