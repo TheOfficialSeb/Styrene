@@ -11,7 +11,7 @@ const pathExp = require("./pathexp");
  * @property {RequestListener} callback
 */
 /**
- * @typedef {'CONNECT' | 'DELETE' | 'GET' | 'HEAD' | 'OPTIONS' | 'POST' | 'PUT' | 'TRACE'} method
+ * @typedef {'GET' | 'POST' | 'CONNECT' | 'DELETE' | 'GET' | 'HEAD' | 'OPTIONS' | 'PUT' | 'TRACE'} method
  */
 /**
  * @callback RequestListener
@@ -34,7 +34,7 @@ class Server {
     /**
      * @type {HTTP.Server}
     */
-    httpServer;
+    #httpServer;
 
     /**
      * @type {listener[]}
@@ -43,9 +43,9 @@ class Server {
 
     constructor(publicDirectory) {
         if (!publicDirectory) throw "No public/static directory specified";
-        this.httpServer = new HTTP.Server();
+        this.#httpServer = new HTTP.Server();
         this.#publicDirectory = pathUtil.resolve(publicDirectory);
-        this.httpServer.addListener("request", this.#requestHandle.bind(this));
+        this.#httpServer.addListener("request", this.#requestHandle.bind(this));
     }
 
     /**
@@ -112,7 +112,7 @@ class Server {
     /**
      * @param {method} method 
      * @param {String} path 
-     * @param {RequestListener} requestListener
+     * @param {RequestListener} listener
      */
     on(method, path, listener) {
         if (!HTTP.METHODS.includes(method)) throw "Invalid HTTP method";
@@ -142,7 +142,7 @@ class Server {
      * @param {Number} port 
      */
     listen(port) {
-        this.httpServer.listen(port);
+        this.#httpServer.listen(port);
     }
 }
 
