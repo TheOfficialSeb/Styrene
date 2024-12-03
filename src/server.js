@@ -11,7 +11,7 @@ const pathExp = require("./pathexp");
  * @property {RequestHandler} callback
 */
 /**
- * @typedef {'GET' | 'POST'} method
+ * @typedef {'CONNECT' | 'DELETE' | 'GET' | 'HEAD' | 'OPTIONS' | 'POST' | 'PUT' | 'TRACE'} method
  */
 /**
  * @callback RequestHandler
