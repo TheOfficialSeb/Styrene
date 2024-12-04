@@ -5,13 +5,18 @@ const { URL } = require("node:url");
 const pathExp = require("./pathexp");
 
 /**
+ * @typedef {Object} Options
+ * @property {String} staticDirectory
+ * @property {Boolean} [directoryBrowser]
+*/
+/**
  * @typedef {Object} Listener
- * @property {method} method
+ * @property {Method} method
  * @property {Function} pathMatcher
  * @property {RequestListener} callback
 */
 /**
- * @typedef {'GET' | 'POST' | 'CONNECT' | 'DELETE' | 'GET' | 'HEAD' | 'OPTIONS' | 'PUT' | 'TRACE'} method
+ * @typedef {'GET' | 'POST' | 'CONNECT' | 'DELETE' | 'GET' | 'HEAD' | 'OPTIONS' | 'PUT' | 'TRACE'} Method
  */
 /**
  * @callback RequestListener
@@ -29,7 +34,7 @@ class Server {
     /**
      * @type {String}
      */
-    #publicDirectory = "";
+    #staticDirectory = "";
 
     /**
      * @type {HTTP.Server}
@@ -41,10 +46,14 @@ class Server {
     */
     #listeners = [];
 
-    constructor(publicDirectory) {
-        if (!publicDirectory) throw "No public/static directory specified";
+    /**
+     * @param {Options} options
+    */
+    constructor(options) {
+        const { directoryBrowser = false } = options;
+        if (typeof options?.staticDirectory != "string") throw "Options must contain {String} key 'staticDirectory'";
         this.#httpServer = new HTTP.Server();
-        this.#publicDirectory = pathUtil.resolve(publicDirectory);
+        this.#staticDirectory = pathUtil.resolve(options.staticDirectory);
         this.#httpServer.addListener("request", this.#requestHandle.bind(this));
     }
 
@@ -88,7 +97,7 @@ class Server {
      * @param {String} [customDirectory]
      */
     #useDirectory(request, response, requestURL, customDirectory) {
-        let filePath = pathUtil.join(customDirectory || this.#publicDirectory, decodeURIComponent(requestURL.pathname).replace(/\/$/, "/index.html"));
+        let filePath = pathUtil.join(customDirectory || this.#staticDirectory, decodeURIComponent(requestURL.pathname).replace(/\/$/, "/index.html"));
         let fileStream;
         let extName = pathUtil.extname(filePath);
         let stats = fileSystem.existsSync(filePath) && fileSystem.statSync(filePath);
@@ -110,7 +119,7 @@ class Server {
     }
 
     /**
-     * @param {method} method 
+     * @param {Method} method 
      * @param {String} path 
      * @param {RequestListener} listener
      */
