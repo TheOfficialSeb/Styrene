@@ -53,7 +53,7 @@ class Server {
         const { directoryBrowser = false } = options;
         if (typeof options?.staticDirectory != "string") throw "Options must contain {String} key 'staticDirectory'";
         this.#httpServer = new HTTP.Server();
-        this.#staticDirectory = pathUtil.resolve(options.staticDirectory);
+        this.#staticDirectory = pathUtil.resolve(process.cwd(),options.staticDirectory);
         this.#httpServer.addListener("request", this.#requestHandle.bind(this));
     }
 
