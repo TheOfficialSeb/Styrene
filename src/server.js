@@ -53,12 +53,10 @@ class Server {
      * @param {Options} options
     */
     constructor(options) {
-        const { directoryBrowser = false, workingDirectory=process.cwd() } = options;
-        options.directoryBrowser = directoryBrowser;
-        options.workingDirectory = workingDirectory;
-        if (typeof options?.staticDirectory != "string") throw "Options must contain {String} key 'staticDirectory'";
+        const { staticDirectory, workingDirectory = process.cwd(), directoryBrowser = false } = options;
+        if (typeof staticDirectory != "string") throw "Options must contain {String} key 'staticDirectory'";
         this.#httpServer = new HTTP.Server();
-        this.#staticDirectory = pathUtil.resolve(options.workingDirectory,options.staticDirectory);
+        this.#staticDirectory = pathUtil.resolve(workingDirectory,staticDirectory);
         this.#httpServer.addListener("request", this.#requestHandle.bind(this));
     }
 
@@ -69,7 +67,7 @@ class Server {
     #requestHandle(request, response) {
         try {
             if (!request.url.match(/^\/+/)) throw "Failure to correctly start a proper url";
-            response.setHeader("server", "Styrene");
+            response.setHeader(!request.headers["x-forwarded-for"] ? "server" : "x-server", "Styrene");
             let requestURL = new URL(`http://${request.headers.host || `localhost:${request.socket.localPort}`}${request.url}`);
             requestURL.pathname = decodeURIComponent(requestURL.pathname);
 
