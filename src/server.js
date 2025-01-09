@@ -8,6 +8,7 @@ const pathExp = require("./pathexp");
  * @typedef {Object} Options
  * @property {String} staticDirectory
  * @property {Boolean} [directoryBrowser]
+ * @property {String} [workingDirectory]
 */
 /**
  * @typedef {Object} Listener
@@ -40,7 +41,9 @@ class Server {
      * @type {HTTP.Server}
     */
     #httpServer;
-
+    get httpServer() { // Used to prevent writes to private value
+        return this.#httpServer;
+    }
     /**
      * @type {listener[]}
     */
@@ -50,10 +53,10 @@ class Server {
      * @param {Options} options
     */
     constructor(options) {
-        const { directoryBrowser = false } = options;
+        const { directoryBrowser = false, workingDirectory=process.cwd() } = options;
         if (typeof options?.staticDirectory != "string") throw "Options must contain {String} key 'staticDirectory'";
         this.#httpServer = new HTTP.Server();
-        this.#staticDirectory = pathUtil.resolve(process.cwd(),options.staticDirectory);
+        this.#staticDirectory = pathUtil.resolve(options.workingDirectory,options.staticDirectory);
         this.#httpServer.addListener("request", this.#requestHandle.bind(this));
     }
 
