@@ -54,6 +54,8 @@ class Server {
     */
     constructor(options) {
         const { directoryBrowser = false, workingDirectory=process.cwd() } = options;
+        options.directoryBrowser = directoryBrowser;
+        options.workingDirectory = workingDirectory;
         if (typeof options?.staticDirectory != "string") throw "Options must contain {String} key 'staticDirectory'";
         this.#httpServer = new HTTP.Server();
         this.#staticDirectory = pathUtil.resolve(options.workingDirectory,options.staticDirectory);

@@ -1,6 +1,6 @@
 {
   "name": "styrene",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Minimalist HTTP Server w/ path listeners",
   "main": "src/index.js",
   "keywords": [
