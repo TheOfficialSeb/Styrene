@@ -116,7 +116,7 @@ class Server {
 
         if (stats && stats.isFile()) {
             fileStream = fileSystem.createReadStream(filePath);
-            Response.setHeader("Content-Type", mime[extName] ?? "application/octet-stream")
+            response.setHeader("Content-Type", mime[extName] ?? "application/octet-stream")
         } else if (stats && stats.isDirectory() && pathUtil.dirname(filePath) != filePath) {
             requestURL.pathname += "/";
             response.writeHead(302, { "location": requestURL.href.slice(requestURL.origin.length) });
