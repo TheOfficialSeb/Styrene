@@ -3,7 +3,7 @@ const pathUtil = require("node:path");
 const fileSystem = require("node:fs");
 const { URL } = require("node:url");
 const pathExp = require("./pathexp");
-
+const mime = require("./mime.json");
 /**
  * @typedef {Object} Options
  * @property {String} staticDirectory
@@ -24,6 +24,15 @@ const pathExp = require("./pathexp");
  * @param {HTTP.IncomingMessage} request
  * @param {HTTP.ServerResponse} response
  * @param {URL} requestURL
+ * @param {Object} params
+ * @param {UseFallback} useFallback
+ */
+/**
+ * @callback RequestErrorListener
+ * @param {HTTP.IncomingMessage} request
+ * @param {HTTP.ServerResponse} response
+ * @param {URL} requestURL
+ * @param {Number} errorCode
  * @param {Object} params
  * @param {UseFallback} useFallback
  */
@@ -56,7 +65,7 @@ class Server {
         const { staticDirectory, workingDirectory = process.cwd(), directoryBrowser = false } = options;
         if (typeof staticDirectory != "string") throw "Options must contain {String} key 'staticDirectory'";
         this.#httpServer = new HTTP.Server();
-        this.#staticDirectory = pathUtil.resolve(workingDirectory,staticDirectory);
+        this.#staticDirectory = pathUtil.resolve(workingDirectory, staticDirectory);
         this.#httpServer.addListener("request", this.#requestHandle.bind(this));
     }
 
@@ -102,11 +111,12 @@ class Server {
     #useDirectory(request, response, requestURL, customDirectory) {
         let filePath = pathUtil.join(customDirectory || this.#staticDirectory, decodeURIComponent(requestURL.pathname).replace(/\/$/, "/index.html"));
         let fileStream;
-        let extName = pathUtil.extname(filePath);
+        let extName = pathUtil.extname(filePath).slice(1);
         let stats = fileSystem.existsSync(filePath) && fileSystem.statSync(filePath);
 
         if (stats && stats.isFile()) {
             fileStream = fileSystem.createReadStream(filePath);
+            Response.setHeader("Content-Type", mime[extName] ?? "application/octet-stream")
         } else if (stats && stats.isDirectory() && pathUtil.dirname(filePath) != filePath) {
             requestURL.pathname += "/";
             response.writeHead(302, { "location": requestURL.href.slice(requestURL.origin.length) });
@@ -117,7 +127,6 @@ class Server {
             response.end("Not Found");
             return;
         }
-        //this.#applyMime(Response, Extname)
         fileStream.pipe(response, { end: true });
     }
 
@@ -127,6 +136,20 @@ class Server {
      * @param {RequestListener} listener
      */
     on(method, path, listener) {
+        if (!HTTP.METHODS.includes(method)) throw "Invalid HTTP method";
+        if (!(typeof path == "string" && path.startsWith("/"))) throw "Path must be a string that starts with a /";
+        if (!(typeof listener == "function")) throw "Listener must be function";
+
+        this.#listeners.push({
+            "callback": listener,
+            "method": method,
+            "pathMatcher": pathExp.match(path)
+        });
+    }
+    /**
+     * @param {RequestErrorListener} listener
+     */
+    onError(listener) {
         if (!HTTP.METHODS.includes(method)) throw "Invalid HTTP method";
         if (!(typeof path == "string" && path.startsWith("/"))) throw "Path must be a string that starts with a /";
         if (!(typeof listener == "function")) throw "Listener must be function";
@@ -147,7 +170,7 @@ class Server {
     #doFallback(request, response, requestURL, customDirectory) {
         try {
             if (!response.closed) this.#useDirectory(request, response, requestURL, customDirectory);
-        } catch {}
+        } catch { }
     }
 
     /**

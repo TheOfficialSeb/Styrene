@@ -220,7 +220,7 @@ function matchInput(input) {
 function match(path) {
     const keys = [];
     const sources = [];
-    for (const seq of flatten(parse(path), 0, []))sources.push(sequenceToRegExp(seq, keys));
+    for (const seq of flatten(parse(path), 0, [])) sources.push(sequenceToRegExp(seq, keys));
     const regexp = new RegExp(`^(?:${sources.join("|")})(?:${escape("/")}$)?$`, "i");
     const decoders = keys.map((key) => {
         if (key.type === "param")
@@ -233,4 +233,4 @@ function match(path) {
         decoders
     })
 }
-module.exports = {match};
+module.exports = { match };
