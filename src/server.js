@@ -6,9 +6,10 @@ const pathExp = require("./pathexp");
 const mime = require("./mime.json");
 /**
  * @typedef {Object} Options
- * @property {String} staticDirectory
+ * @property {String} [staticDirectory]
  * @property {Boolean} [directoryBrowser]
  * @property {String} [workingDirectory]
+ * @property {DefaultResponder} [defaultResponder]
 */
 /**
  * @typedef {Object} Listener
@@ -18,6 +19,9 @@ const mime = require("./mime.json");
 */
 /**
  * @typedef {'GET' | 'POST' | 'CONNECT' | 'DELETE' | 'GET' | 'HEAD' | 'OPTIONS' | 'PUT' | 'TRACE'} Method
+ */
+/**
+ * @typedef {'vanilla' | 'react' | 'throw'} DefaultResponder
  */
 /**
  * @callback RequestListener
@@ -47,6 +51,11 @@ class Server {
     #staticDirectory = "";
 
     /**
+     * @type {DefaultResponder}
+     */
+    #defaultResponder = "";
+
+    /**
      * @type {HTTP.Server}
     */
     #httpServer;
@@ -62,11 +71,12 @@ class Server {
      * @param {Options} options
     */
     constructor(options) {
-        const { staticDirectory, workingDirectory = process.cwd(), directoryBrowser = false } = options;
-        if (typeof staticDirectory != "string") throw "Options must contain {String} key 'staticDirectory'";
+        const { staticDirectory, workingDirectory = process.cwd(), directoryBrowser = false, defaultResponder = "vanilla" } = options;
+        if (typeof staticDirectory != "string" && defaultResponder !== "throw") throw "Options must contain {String} key 'staticDirectory'";
         this.#httpServer = new HTTP.Server();
-        this.#staticDirectory = pathUtil.resolve(workingDirectory, staticDirectory);
+        this.#staticDirectory = staticDirectory ? pathUtil.resolve(workingDirectory, staticDirectory) : "";
         this.#httpServer.addListener("request", this.#requestHandle.bind(this));
+        this.#defaultResponder = defaultResponder;
     }
 
     /**
@@ -88,20 +98,40 @@ class Server {
                 try {
                     listener.callback(request, response, requestURL, match.params, this.#doFallback.bind(this, request, response, requestURL));
                 } catch (err) {
-                    if (response.closed) return;
-                    response.writeHead(500);
-                    response.end(`Internal Server Error\n${err.message || err}`);
+                    if (response.closed || response.headersSent) return;
+                    response.writeHead(500, { "content-type": "text/html" });
+                    response.end(this.#generateHTMLError(500, "Internal Server Error"));
                 }
                 return;
             }
             this.#useDirectory(request, response, requestURL);
         } catch (err) {
-            if (response.closed) return;
-            response.writeHead(400);
-            response.end(`Bad Request\n${err.message || err}`);
+            if (response.closed || response.headersSent) return;
+            response.writeHead(400, { "content-type": "text/html" });
+            response.end(this.#generateHTMLError(400, "Bad Request"));
         }
     }
-
+    #errorHTMLFormat = '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Error {0}</title></head><body style="display:flex;justify-content:center;align-items:center;height:100vh;margin:0; font-family: Arial,sans-serif;text-align:center;background-color:#111;color:#ff6464;"><div style="padding: 20px;"><h1 style="font-size:50px;margin: 0;">{0}</h1><p style="font-size:20px;margin: 10px 0 0;">{1}</p></div></body></html>';
+    /**
+     * @param {Number} code 
+     * @param {String} message 
+     * @returns {String}
+     */
+    #generateHTMLError(code, message) {
+        let args = [code, message];
+        return this.#errorHTMLFormat.replace(/{(\d+)}/g, (m, n) => (args)[n] ?? m);
+    }
+    /**
+     * 
+     * @param {String} mimeType 
+     * @returns {Array<String>}
+     */
+    #getExtensionsForMimeType(mimeType) {
+        let isWildcard = mimeType === "*/*";
+        let halfWildcard = mimeType.match(/(.+)\/\*$/);
+        let keys = Object.keys(mime);
+        return isWildcard ? keys : keys.filter(ext => halfWildcard ? mime[ext].startsWith(halfWildcard[1]) : mime[ext] === mimeType);
+    }
     /**
      * @param {HTTP.IncomingMessage} request
      * @param {HTTP.ServerResponse} response
@@ -109,24 +139,48 @@ class Server {
      * @param {String} [customDirectory]
      */
     #useDirectory(request, response, requestURL, customDirectory) {
+        if (this.#defaultResponder === "throw") {
+            response.writeHead(500, { "content-type": "text/html" });
+            response.end(this.#generateHTMLError(500, "Internal Server Error"));
+            return;
+        }
+        let acceptMime = request.headers?.accept ? request.headers?.accept.split(',').map(type => type.trim().split(";")[0]).filter(type => type.length > 0) : ["*/*"];
         let filePath = pathUtil.join(customDirectory || this.#staticDirectory, decodeURIComponent(requestURL.pathname).replace(/\/$/, "/index.html"));
         let fileStream;
+        let baseName = pathUtil.basename(filePath);
         let extName = pathUtil.extname(filePath).slice(1);
+        let dirName = pathUtil.dirname(filePath);
         let stats = fileSystem.existsSync(filePath) && fileSystem.statSync(filePath);
-
+        if (!stats && !extName.length) {
+            let possibleExts = acceptMime.map(e => this.#getExtensionsForMimeType(e)).flat()
+            let newStats;
+            for (extName of possibleExts) {
+                filePath = pathUtil.join(dirName, `${baseName}.${extName}`);
+                newStats = fileSystem.existsSync(filePath) && fileSystem.statSync(filePath);
+                if (newStats) break;
+            }
+            if (newStats) stats = newStats;
+        }
+        if (!stats && this.#defaultResponder === "react" && (acceptMime.includes("text/html") || acceptMime.includes("*/*"))) {
+            filePath = pathUtil.join(customDirectory || this.#staticDirectory, "index.html");
+            baseName = pathUtil.basename(filePath);
+            extName = pathUtil.extname(filePath).slice(1);
+            dirName = pathUtil.dirname(filePath);
+            stats = fileSystem.existsSync(filePath) && fileSystem.statSync(filePath);
+        }
         if (stats && stats.isFile()) {
             fileStream = fileSystem.createReadStream(filePath);
-            response.setHeader("Content-Type", mime[extName] ?? "application/octet-stream")
-        } else if (stats && stats.isDirectory() && pathUtil.dirname(filePath) != filePath) {
+        } else if (stats && stats.isDirectory() && dirName != filePath) {
             requestURL.pathname += "/";
             response.writeHead(302, { "location": requestURL.href.slice(requestURL.origin.length) });
             response.end();
             return;
         } else {
             response.writeHead(404);
-            response.end("Not Found");
+            response.end(this.#generateHTMLError(404, "Not Found"));
             return;
         }
+        response.writeHead(200, { "Content-Type": mime[extName] ?? "application/octet-stream" });
         fileStream.pipe(response, { end: true });
     }
 
