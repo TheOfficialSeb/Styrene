@@ -122,18 +122,6 @@ class Server {
         return this.#errorHTMLFormat.replace(/{(\d+)}/g, (m, n) => (args)[n] ?? m);
     }
     /**
-     * 
-     * @param {String} mimeType 
-     * @returns {Array<String>}
-     */
-    #getExtensionsForMimeType(mimeType) {
-        let halfWildcard = mimeType.match(/(.+)\/\*$/);
-        let keys = MIME.keys.filter(k=>k.includes("/"));
-        if (mimeType === "*/*")return keys.filter(k=>!k.includes("/"));
-        if (halfWildcard)return keys.filter(k=>k.includes(`${halfWildcard[1]}/`)).map(k=>MIME.get(k));
-        return MIME.get(mimeType)
-    }
-    /**
      * @param {HTTP.IncomingMessage} request
      * @param {HTTP.ServerResponse} response
      * @param {URL} requestURL
@@ -152,16 +140,6 @@ class Server {
         let extName = pathUtil.extname(filePath).slice(1);
         let dirName = pathUtil.dirname(filePath);
         let stats = fileSystem.existsSync(filePath) && fileSystem.statSync(filePath);
-        if (!stats && !extName.length) {
-            let possibleExts = acceptMime.map(e => this.#getExtensionsForMimeType(e)).flat()
-            let newStats;
-            for (extName of possibleExts) {
-                filePath = pathUtil.join(dirName, `${baseName}.${extName}`);
-                newStats = fileSystem.existsSync(filePath) && fileSystem.statSync(filePath);
-                if (newStats) break;
-            }
-            if (newStats) stats = newStats;
-        }
         if (!stats && this.#defaultResponder === "singlepage" && (acceptMime.includes("text/html") || acceptMime.includes("*/*"))) {
             filePath = pathUtil.join(customDirectory || this.#staticDirectory, "index.html");
             baseName = pathUtil.basename(filePath);
