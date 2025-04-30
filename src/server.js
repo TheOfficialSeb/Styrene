@@ -3,7 +3,7 @@ const pathUtil = require("node:path");
 const fileSystem = require("node:fs");
 const { URL } = require("node:url");
 const pathExp = require("./pathexp");
-const mime = require("./mime.json");
+const MIME = require("./mime.js");
 /**
  * @typedef {Object} Options
  * @property {String} [staticDirectory]
@@ -21,7 +21,7 @@ const mime = require("./mime.json");
  * @typedef {'GET' | 'POST' | 'CONNECT' | 'DELETE' | 'GET' | 'HEAD' | 'OPTIONS' | 'PUT' | 'TRACE'} Method
  */
 /**
- * @typedef {'vanilla' | 'react' | 'throw'} DefaultResponder
+ * @typedef {'vanilla' | 'singlepage' | 'throw'} DefaultResponder
  */
 /**
  * @callback RequestListener
@@ -127,10 +127,11 @@ class Server {
      * @returns {Array<String>}
      */
     #getExtensionsForMimeType(mimeType) {
-        let isWildcard = mimeType === "*/*";
         let halfWildcard = mimeType.match(/(.+)\/\*$/);
-        let keys = Object.keys(mime);
-        return isWildcard ? keys : keys.filter(ext => halfWildcard ? mime[ext].startsWith(halfWildcard[1]) : mime[ext] === mimeType);
+        let keys = MIME.keys.filter(k=>k.includes("/"));
+        if (mimeType === "*/*")return keys.filter(k=>!k.includes("/"));
+        if (halfWildcard)return keys.filter(k=>k.includes(`${halfWildcard[1]}/`)).map(k=>MIME.get(k));
+        return MIME.get(mimeType)
     }
     /**
      * @param {HTTP.IncomingMessage} request
@@ -161,7 +162,7 @@ class Server {
             }
             if (newStats) stats = newStats;
         }
-        if (!stats && this.#defaultResponder === "react" && (acceptMime.includes("text/html") || acceptMime.includes("*/*"))) {
+        if (!stats && this.#defaultResponder === "singlepage" && (acceptMime.includes("text/html") || acceptMime.includes("*/*"))) {
             filePath = pathUtil.join(customDirectory || this.#staticDirectory, "index.html");
             baseName = pathUtil.basename(filePath);
             extName = pathUtil.extname(filePath).slice(1);
@@ -180,8 +181,8 @@ class Server {
             response.end(this.#generateHTMLError(404, "Not Found"));
             return;
         }
-        response.writeHead(200, { "Content-Type": mime[extName] ?? "application/octet-stream" });
-        fileStream.pipe(response, { end: true });
+        response.writeHead(200, { "Content-Type": MIME.get(extName) ?? "application/octet-stream" });
+        fileStream.pipe(response, { end: true, });
     }
 
     /**
