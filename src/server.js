@@ -140,6 +140,11 @@ class Server {
         let extName = pathUtil.extname(filePath).slice(1);
         let dirName = pathUtil.dirname(filePath);
         let stats = fileSystem.existsSync(filePath) && fileSystem.statSync(filePath);
+        if (request.headers["accept-encoding"]?.includes("gzip") && fileSystem.existsSync(filePath + ".gz")) {
+            filePath += ".gz";
+            stats = fileSystem.statSync(filePath);
+            response.setHeader("Content-Encoding", "gzip");
+        }
         if (!stats && this.#defaultResponder === "singlepage" && (acceptMime.includes("text/html") || acceptMime.includes("*/*"))) {
             filePath = pathUtil.join(customDirectory || this.#staticDirectory, "index.html");
             baseName = pathUtil.basename(filePath);
@@ -159,7 +164,7 @@ class Server {
             response.end(this.#generateHTMLError(404, "Not Found"));
             return;
         }
-        response.writeHead(200, { "Content-Type": MIME.get(extName) ?? "application/octet-stream" });
+        response.writeHead(200, { "Content-Type": MIME.get(extName) ?? "application/octet-stream", "Content-Length": stats.size });
         fileStream.pipe(response, { end: true, });
     }
 
