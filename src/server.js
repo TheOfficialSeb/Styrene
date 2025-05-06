@@ -18,6 +18,11 @@ const MIME = require("./mime.js");
  * @property {RequestListener} callback
 */
 /**
+ * @typedef {Object} MidListener
+ * @property {Function} pathMatcher
+ * @property {RequestListener} callback
+*/
+/**
  * @typedef {'GET' | 'POST' | 'CONNECT' | 'DELETE' | 'GET' | 'HEAD' | 'OPTIONS' | 'PUT' | 'TRACE'} Method
  */
 /**
@@ -29,20 +34,17 @@ const MIME = require("./mime.js");
  * @param {HTTP.ServerResponse} response
  * @param {URL} requestURL
  * @param {Object} params
- * @param {UseFallback} useFallback
  */
 /**
- * @callback RequestErrorListener
+ * @callback RequestMidListener
  * @param {HTTP.IncomingMessage} request
  * @param {HTTP.ServerResponse} response
+ * @param {UseNext} useNext
  * @param {URL} requestURL
- * @param {Number} errorCode
  * @param {Object} params
- * @param {UseFallback} useFallback
  */
 /**
- * @callback UseFallback
- * @param {String} [customDirectory]
+ * @callback UseNext
  */
 class Server {
     /**
@@ -63,10 +65,13 @@ class Server {
         return this.#httpServer;
     }
     /**
-     * @type {listener[]}
+     * @type {Listener[]}
     */
     #listeners = [];
-
+    /**
+     * @type {MidListener[]}
+    */
+    #midListeners = [];
     /**
      * @param {Options} options
     */
@@ -78,7 +83,27 @@ class Server {
         this.#httpServer.addListener("request", this.#requestHandle.bind(this));
         this.#defaultResponder = defaultResponder;
     }
-
+    /**
+     * @param {HTTP.IncomingMessage} request
+     * @param {HTTP.ServerResponse} response
+     * @param {URL} requestURL
+    */
+    #listenerHandle(request, response, requestURL) {
+        const methodListeners = this.#listeners.filter(listener => listener.method === request.method);
+        for (let listener of methodListeners) {
+            let match = listener.pathMatcher(requestURL.pathname);
+            if (!match) continue;
+            try {
+                listener.callback(request, response, requestURL, match.params);
+            } catch (err) {
+                if (response.closed || response.headersSent) return;
+                response.writeHead(500, { "content-type": "text/html" });
+                response.end(this.#generateHTMLError(500, "Internal Server Error"));
+            }
+            return;
+        }
+        this.#useDirectory(request, response, requestURL);
+    }
     /**
      * @param {HTTP.IncomingMessage} request
      * @param {HTTP.ServerResponse} response
@@ -89,22 +114,15 @@ class Server {
             response.setHeader(!request.headers["x-forwarded-for"] ? "server" : "x-server", "Styrene");
             let requestURL = new URL(`http://${request.headers.host || `localhost:${request.socket.localPort}`}${request.url}`);
             requestURL.pathname = decodeURIComponent(requestURL.pathname);
-
-            const methodListeners = this.#listeners.filter(listener => listener.method === request.method);
-
-            for (let listener of methodListeners) {
+            const midListeners = [...this.#midListeners]
+            midListeners.reverse();
+            let useNext = this.#listenerHandle.bind(this,request, response, requestURL);
+            for (let listener of midListeners) {
                 let match = listener.pathMatcher(requestURL.pathname);
                 if (!match) continue;
-                try {
-                    listener.callback(request, response, requestURL, match.params, this.#doFallback.bind(this, request, response, requestURL));
-                } catch (err) {
-                    if (response.closed || response.headersSent) return;
-                    response.writeHead(500, { "content-type": "text/html" });
-                    response.end(this.#generateHTMLError(500, "Internal Server Error"));
-                }
-                return;
+                useNext = listener.callback.bind(listener.callback,request,response,useNext,requestURL,match.params);
             }
-            this.#useDirectory(request, response, requestURL);
+            useNext();
         } catch (err) {
             if (response.closed || response.headersSent) return;
             response.writeHead(400, { "content-type": "text/html" });
@@ -136,7 +154,6 @@ class Server {
         let acceptMime = request.headers?.accept ? request.headers?.accept.split(',').map(type => type.trim().split(";")[0]).filter(type => type.length > 0) : ["*/*"];
         let filePath = pathUtil.join(customDirectory || this.#staticDirectory, decodeURIComponent(requestURL.pathname).replace(/\/$/, "/index.html"));
         let fileStream;
-        let baseName = pathUtil.basename(filePath);
         let extName = pathUtil.extname(filePath).slice(1);
         let dirName = pathUtil.dirname(filePath);
         let stats = fileSystem.existsSync(filePath) && fileSystem.statSync(filePath);
@@ -147,7 +164,6 @@ class Server {
         }
         if (!stats && this.#defaultResponder === "singlepage" && (acceptMime.includes("text/html") || acceptMime.includes("*/*"))) {
             filePath = pathUtil.join(customDirectory || this.#staticDirectory, "index.html");
-            baseName = pathUtil.basename(filePath);
             extName = pathUtil.extname(filePath).slice(1);
             dirName = pathUtil.dirname(filePath);
             stats = fileSystem.existsSync(filePath) && fileSystem.statSync(filePath);
@@ -185,30 +201,17 @@ class Server {
         });
     }
     /**
-     * @param {RequestErrorListener} listener
+     * @param {String} path 
+     * @param {RequestMidListener} listener
      */
-    onError(listener) {
-        if (!HTTP.METHODS.includes(method)) throw "Invalid HTTP method";
+    use(path, listener) {
         if (!(typeof path == "string" && path.startsWith("/"))) throw "Path must be a string that starts with a /";
         if (!(typeof listener == "function")) throw "Listener must be function";
 
-        this.#listeners.push({
+        this.#midListeners.push({
             "callback": listener,
-            "method": method,
             "pathMatcher": pathExp.match(path)
         });
-    }
-
-    /**
-     * @param {HTTP.IncomingMessage} request
-     * @param {HTTP.ServerResponse} response
-     * @param {URL} requestURL
-     * @param {String} [customDirectory]
-     */
-    #doFallback(request, response, requestURL, customDirectory) {
-        try {
-            if (!response.closed) this.#useDirectory(request, response, requestURL, customDirectory);
-        } catch { }
     }
 
     /**
